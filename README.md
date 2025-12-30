@@ -40,6 +40,7 @@ python Nopressure.py
 | **W** | 开关参考图（自动缩放窗口宽度） |
 | **C** | 清空当前画布 |
 | **Ctrl + Z** | 撤销上一步操作 |
+| **Ctrl + Y** | 重做上一步操作 |
 | **Ctrl + S** | 保存画作为 PNG 图片 |
 
 ## 🛠️ 技术实现细节
@@ -94,6 +95,7 @@ python Nopressure.py
 | **W** | Toggle reference images (automatically scales window width) |
 | **C** | Clear the current canvas |
 | **Ctrl + Z** | Undo the previous operation |
+| **Ctrl + y** | Redo the previous operation |
 | **Ctrl + S** | Save the artwork as a PNG image |
 
 ## 🛠️ Technical Implementation Details

@@ -25,14 +25,14 @@ from PyQt5.QtWidgets import QShortcut
 
 
 # ==============================================================================
-# 2. 核心算法 (修复 Overflow 警告)
+# 2. 核心算法
 # ==============================================================================
 
 def decode_packbits_row(row_data, target_row_buf, width):
     ptr, col = 0, 0
     row_len = len(row_data)
     while ptr < row_len and col < width:
-        n = int(row_data[ptr])  # 转换为标准 int 防止计算溢出
+        n = int(row_data[ptr])
         ptr += 1
         if n < 128:
             count = n + 1
@@ -40,7 +40,7 @@ def decode_packbits_row(row_data, target_row_buf, width):
             if ptr + write_len > row_len: write_len = row_len - ptr
             if write_len > 0:
                 target_row_buf[col: col + write_len] = np.frombuffer(row_data[ptr: ptr + write_len], dtype='u1')
-            ptr += count
+            ptr += count;
             col += count
         elif n > 128:
             count = 257 - n
@@ -56,30 +56,19 @@ def decode_packbits_row(row_data, target_row_buf, width):
 def rle_decode_abr(data_bytes, h, w):
     table_size = h * 2
     if len(data_bytes) < table_size: return None, 0
-    # line_byte_counts 存储每行数据的字节长度
     line_byte_counts = np.frombuffer(data_bytes[:table_size], dtype='>u2')
-
-    offset = int(table_size)  # 强制设为 Python int
+    offset = int(table_size)
     img_mat = np.zeros((h, w), dtype='u1')
-
     for i in range(h):
-        # 【关键修复】：将 byte_cnt 转换为 Python 标量 int，避免 RuntimeWarning 溢出
         byte_cnt = int(line_byte_counts[i])
         if byte_cnt == 0: continue
-
         end_pos = offset + byte_cnt
         if end_pos > len(data_bytes): break
-
         decode_packbits_row(data_bytes[offset: end_pos], img_mat[i], w)
-        offset = end_pos  # 直接使用加法后的结果，避免重复进行 += 运算
-
+        offset = end_pos
     return img_mat, offset
 
-# ==============================================================================
-# 核心 ABR 解析逻辑
-# 部分逻辑参考自 Brush-Converter 项目 (https://github.com/tohsakrat/Brush-Converter)
-# 遵循 CC BY-NC 4.0 协议进行适配与优化
-# ==============================================================================
+
 class IntegratedAbrParser:
     @staticmethod
     def load_abr(filepath):
@@ -92,7 +81,7 @@ class IntegratedAbrParser:
             cursor = 4
             while cursor < len(data) - 12:
                 if data[cursor:cursor + 4] != b'8BIM':
-                    cursor += 1
+                    cursor += 1;
                     continue
                 cursor += 4
                 key = data[cursor:cursor + 4].decode('ascii', errors='ignore')
@@ -100,7 +89,6 @@ class IntegratedAbrParser:
                 block_len = struct.unpack('>I', data[cursor:cursor + 4])[0]
                 cursor += 4
                 block_end = cursor + block_len
-
                 if key == 'samp':
                     samp_cursor = cursor
                     while samp_cursor < block_end:
@@ -154,10 +142,10 @@ class ProCanvas(QWidget):
         self.stroke_opacity = 1.0
         self.last_mapped_pos = None
         self.undo_stack = [self.full_image.copy()]
-        self.redo_stack = []
-        self.custom_tips = {}
+        self.redo_stack = []  # 重做栈
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.setMinimumSize(0, 0)
+        self.custom_tips = {}
 
     def get_canvas_rect(self):
         w, h = self.width(), self.height()
@@ -248,20 +236,24 @@ class ProCanvas(QWidget):
 
     def mouseReleaseEvent(self, event):
         if event.button() == Qt.LeftButton and self.drawing and self.temp_image:
-            p = QPainter(self.full_image);
+            p = QPainter(self.full_image)
             p.setOpacity(self.stroke_opacity)
-            p.drawImage(0, 0, self.temp_image);
+            p.drawImage(0, 0, self.temp_image)
             p.end()
+            # 记录历史
             self.undo_stack.append(self.full_image.copy())
-            if len(self.undo_stack) > 30: self.undo_stack.pop(0)
-            self.redo_stack.clear();
-            self.temp_image = None;
-            self.drawing = False;
+            if len(self.undo_stack) > 50: self.undo_stack.pop(0)
+
+            # 【重要】：产生了新笔触，清空重做栈
+            self.redo_stack.clear()
+
+            self.temp_image = None
+            self.drawing = False
             self.update()
 
 
 # ==============================================================================
-# 4. 主窗口逻辑 (Nopressure)
+# 4. 主窗口逻辑
 # ==============================================================================
 
 class AspectLabel(QLabel):
@@ -286,11 +278,11 @@ class AspectLabel(QLabel):
 class DrawingApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Nopressure")  # 标题更名为 Nopressure
+        self.setWindowTitle("Nopressure")
         self.resize(800, 400);
         self.setMinimumSize(0, 0)
-        self.base_color_val = QColor(0, 0, 0);
-        self.init_ui();
+        self.base_color_val = QColor(0, 0, 0)
+        self.init_ui()
         self.load_brushes()
 
     def init_ui(self):
@@ -309,12 +301,12 @@ class DrawingApp(QMainWindow):
                                                                 QSizePolicy.Preferred); t_layout.addWidget(w); return w
 
         add_min(QLabel("B:"));
-        self.size_slider = add_min(QSlider(Qt.Horizontal));
-        self.size_slider.setRange(1, 100);  # 笔刷最大限制为 100
+        self.size_slider = add_min(QSlider(Qt.Horizontal))
+        self.size_slider.setRange(1, 200);
         self.size_slider.setValue(40);
         self.size_slider.valueChanged.connect(self.update_brush)
         add_min(QLabel("A:"));
-        self.alpha_slider = add_min(QSlider(Qt.Horizontal));
+        self.alpha_slider = add_min(QSlider(Qt.Horizontal))
         self.alpha_slider.setRange(0, 255);
         self.alpha_slider.setValue(255);
         self.alpha_slider.valueChanged.connect(self.update_brush)
@@ -324,6 +316,7 @@ class DrawingApp(QMainWindow):
         add_min(QPushButton("色")).clicked.connect(self.pick_color);
         add_min(QPushButton("图")).clicked.connect(self.import_ref)
         self.main_layout.addWidget(self.toolbar)
+
         self.content_area = QWidget();
         self.content_layout = QHBoxLayout(self.content_area);
         self.content_layout.setContentsMargins(0, 0, 0, 0);
@@ -333,48 +326,55 @@ class DrawingApp(QMainWindow):
         self.content_layout.addWidget(self.ref_view, 1);
         self.content_layout.addWidget(self.canvas_view, 1)
         self.main_layout.addWidget(self.content_area)
+
+        # 快捷键注册
         QShortcut(QKeySequence("Q"), self).activated.connect(
             lambda: self.toolbar.setVisible(not self.toolbar.isVisible()))
         QShortcut(QKeySequence("W"), self).activated.connect(self.toggle_reference)
         QShortcut(QKeySequence("C"), self).activated.connect(self.clear_action)
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self.undo_action)
+        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self.redo_action)  # 新增重做
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
         self.update_brush()
 
     def load_brushes(self):
-        # --- 核心修复：适配打包后的路径定位 ---
         if getattr(sys, 'frozen', False):
-            # 如果是打包后的 .exe 环境，获取 .exe 所在的文件夹路径
             base_dir = os.path.dirname(sys.executable)
         else:
-            # 如果是普通的 .py 脚本环境
             base_dir = os.path.dirname(os.path.abspath(__file__))
-
         path = os.path.join(base_dir, "brushes")
-
-        if not os.path.exists(path):
-            os.makedirs(path)
-            return
-
-        print(f"正在扫描笔刷目录: {path}")  # 调试信息
+        if not os.path.exists(path): os.makedirs(path); return
         for f in os.listdir(path):
             if f.lower().endswith(".abr"):
                 base_name = os.path.splitext(f)[0]
                 tips = IntegratedAbrParser.load_abr(os.path.join(path, f))
                 for i, tip in enumerate(tips):
                     name = base_name if len(tips) == 1 else f"{base_name}_{i + 1}"
-                    self.canvas_view.custom_tips[name] = tip
+                    self.canvas_view.custom_tips[name] = tip;
                     self.shape_box.addItem(name)
 
     def undo_action(self):
         if len(self.canvas_view.undo_stack) > 1:
-            self.canvas_view.redo_stack.append(self.canvas_view.undo_stack.pop())
-            self.canvas_view.full_image = self.canvas_view.undo_stack[-1].copy();
+            # 将当前状态移入重做栈
+            last_state = self.canvas_view.undo_stack.pop()
+            self.canvas_view.redo_stack.append(last_state)
+
+            # 恢复上一状态
+            self.canvas_view.full_image = self.canvas_view.undo_stack[-1].copy()
+            self.canvas_view.update()
+
+    def redo_action(self):
+        # 【核心逻辑】：如果重做栈不为空，则取回最新状态
+        if self.canvas_view.redo_stack:
+            next_state = self.canvas_view.redo_stack.pop()
+            self.canvas_view.undo_stack.append(next_state)
+            self.canvas_view.full_image = next_state.copy()
             self.canvas_view.update()
 
     def clear_action(self):
         self.canvas_view.full_image.fill(Qt.white)
-        self.canvas_view.undo_stack.append(self.canvas_view.full_image.copy());
+        self.canvas_view.undo_stack.append(self.canvas_view.full_image.copy())
+        self.canvas_view.redo_stack.clear()  # 清空重做栈
         self.canvas_view.update()
 
     def update_brush(self):
