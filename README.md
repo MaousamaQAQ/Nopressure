@@ -95,7 +95,7 @@ python Nopressure.py
 | **W** | Toggle reference images (automatically scales window width) |
 | **C** | Clear the current canvas |
 | **Ctrl + Z** | Undo the previous operation |
-| **Ctrl + y** | Redo the previous operation |
+| **Ctrl + Y** | Redo the previous operation |
 | **Ctrl + S** | Save the artwork as a PNG image |
 
 ## 🛠️ Technical Implementation Details
