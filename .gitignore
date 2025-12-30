@@ -1,0 +1,12 @@
+# 忽略目录
+.idea/
+.venv/
+build/
+dist/
+
+# 忽略特定后缀文件
+*.spec
+
+# Python 缓存
+__pycache__/
+*.py[cod]
