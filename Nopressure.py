@@ -19,15 +19,14 @@ except Exception:
 from PyQt5.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout,
                              QHBoxLayout, QPushButton, QSlider, QLabel,
                              QFileDialog, QColorDialog, QComboBox, QFrame, QSizePolicy)
-from PyQt5.QtGui import QPainter, QColor, QImage, QPixmap, QKeySequence, QPen
+from PyQt5.QtGui import QPainter, QColor, QImage, QPixmap, QKeySequence, QPen, QCursor
 from PyQt5.QtCore import Qt, QPoint, QRect, QPointF
 from PyQt5.QtWidgets import QShortcut
 
 
 # ==============================================================================
-# 2. 核心算法
+# 2. 核心算法 (ABR 解析)
 # ==============================================================================
-
 def decode_packbits_row(row_data, target_row_buf, width):
     ptr, col = 0, 0
     row_len = len(row_data)
@@ -127,10 +126,10 @@ class IntegratedAbrParser:
 # ==============================================================================
 # 3. 绘图引擎
 # ==============================================================================
-
 class ProCanvas(QWidget):
-    def __init__(self):
+    def __init__(self, parent_app):
         super().__init__()
+        self.parent_app = parent_app  # 引用主程序以便同步颜色
         self.setAttribute(Qt.WA_StaticContents)
         self.full_image = QImage(2000, 2000, QImage.Format_ARGB32_Premultiplied)
         self.full_image.fill(Qt.white)
@@ -142,7 +141,7 @@ class ProCanvas(QWidget):
         self.stroke_opacity = 1.0
         self.last_mapped_pos = None
         self.undo_stack = [self.full_image.copy()]
-        self.redo_stack = []  # 重做栈
+        self.redo_stack = []
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored)
         self.setMinimumSize(0, 0)
         self.custom_tips = {}
@@ -173,7 +172,9 @@ class ProCanvas(QWidget):
         painter.drawRect(target_rect)
 
     def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton:
+        if event.button() == Qt.RightButton:
+            self.parent_app.pick_color_at_screen(event.globalPos())
+        elif event.button() == Qt.LeftButton:
             m_pos = self.map_to_canvas(event.pos())
             if m_pos:
                 self.drawing = True;
@@ -183,7 +184,9 @@ class ProCanvas(QWidget):
                 self.paint_stroke(m_pos, m_pos)
 
     def mouseMoveEvent(self, event):
-        if (event.buttons() & Qt.LeftButton) and self.drawing:
+        if event.buttons() & Qt.RightButton:
+            self.parent_app.pick_color_at_screen(event.globalPos())
+        elif (event.buttons() & Qt.LeftButton) and self.drawing:
             m_pos = self.map_to_canvas(event.pos())
             if m_pos and self.last_mapped_pos:
                 self.paint_stroke(self.last_mapped_pos, m_pos)
@@ -230,7 +233,6 @@ class ProCanvas(QWidget):
                     painter.drawEllipse(brush_rect)
                 else:
                     painter.drawRect(brush_rect)
-
         painter.end();
         self.update()
 
@@ -240,47 +242,56 @@ class ProCanvas(QWidget):
             p.setOpacity(self.stroke_opacity)
             p.drawImage(0, 0, self.temp_image)
             p.end()
-            # 记录历史
             self.undo_stack.append(self.full_image.copy())
             if len(self.undo_stack) > 50: self.undo_stack.pop(0)
-
-            # 【重要】：产生了新笔触，清空重做栈
             self.redo_stack.clear()
-
             self.temp_image = None
             self.drawing = False
             self.update()
 
 
 # ==============================================================================
-# 4. 主窗口逻辑
+# 4. 参考图视图 (支持右键取色)
 # ==============================================================================
-
 class AspectLabel(QLabel):
-    def __init__(self):
+    def __init__(self, parent_app):
         super().__init__("参考图 (W键显示)")
+        self.parent_app = parent_app
         self.pix = None;
         self.setAlignment(Qt.AlignCenter)
         self.setSizePolicy(QSizePolicy.Ignored, QSizePolicy.Ignored);
         self.setMinimumSize(0, 0)
         self.setStyleSheet("background-color: #f0f0f0; border-right: 1px solid #ddd;")
 
-    def set_pixmap(self, pixmap): self.pix = pixmap; self.update_pixmap()
+    def set_pixmap(self, pixmap):
+        self.pix = pixmap; self.update_pixmap()
 
     def update_pixmap(self):
         if self.pix and not self.pix.isNull():
             scaled = self.pix.scaled(self.size(), Qt.KeepAspectRatio, Qt.SmoothTransformation)
             super().setPixmap(scaled)
 
-    def resizeEvent(self, event): self.update_pixmap(); super().resizeEvent(event)
+    def resizeEvent(self, event):
+        self.update_pixmap(); super().resizeEvent(event)
+
+    # 在参考图上监听右键
+    def mousePressEvent(self, event):
+        if event.button() == Qt.RightButton:
+            self.parent_app.pick_color_at_screen(event.globalPos())
+
+    def mouseMoveEvent(self, event):
+        if event.buttons() & Qt.RightButton:
+            self.parent_app.pick_color_at_screen(event.globalPos())
 
 
+# ==============================================================================
+# 5. 主窗口逻辑
+# ==============================================================================
 class DrawingApp(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.setWindowTitle("Nopressure")
-        self.resize(800, 400);
-        self.setMinimumSize(0, 0)
+        self.setWindowTitle("Nopressure - Right Click to Pick Color")
+        self.resize(1000, 600);
         self.base_color_val = QColor(0, 0, 0)
         self.init_ui()
         self.load_brushes()
@@ -291,6 +302,7 @@ class DrawingApp(QMainWindow):
         self.main_layout = QVBoxLayout(self.central_widget);
         self.main_layout.setContentsMargins(0, 0, 0, 0);
         self.main_layout.setSpacing(0)
+
         self.toolbar = QFrame();
         self.toolbar.setFixedHeight(40);
         self.toolbar.setStyleSheet("background: white; border-bottom: 1px solid #ccc;")
@@ -301,19 +313,23 @@ class DrawingApp(QMainWindow):
                                                                 QSizePolicy.Preferred); t_layout.addWidget(w); return w
 
         add_min(QLabel("B:"));
-        self.size_slider = add_min(QSlider(Qt.Horizontal))
+        self.size_slider = add_min(QSlider(Qt.Horizontal));
         self.size_slider.setRange(1, 200);
-        self.size_slider.setValue(40);
+        self.size_slider.setValue(40)
         self.size_slider.valueChanged.connect(self.update_brush)
+
         add_min(QLabel("A:"));
-        self.alpha_slider = add_min(QSlider(Qt.Horizontal))
+        self.alpha_slider = add_min(QSlider(Qt.Horizontal));
         self.alpha_slider.setRange(0, 255);
-        self.alpha_slider.setValue(255);
+        self.alpha_slider.setValue(255)
         self.alpha_slider.valueChanged.connect(self.update_brush)
+
         self.shape_box = add_min(QComboBox());
-        self.shape_box.addItems(["圆", "方"]);
+        self.shape_box.addItems(["圆", "方"])
         self.shape_box.currentTextChanged.connect(self.update_brush)
-        add_min(QPushButton("色")).clicked.connect(self.pick_color);
+
+        self.color_btn = add_min(QPushButton("色"))
+        self.color_btn.clicked.connect(self.pick_color_dialog)
         add_min(QPushButton("图")).clicked.connect(self.import_ref)
         self.main_layout.addWidget(self.toolbar)
 
@@ -321,50 +337,58 @@ class DrawingApp(QMainWindow):
         self.content_layout = QHBoxLayout(self.content_area);
         self.content_layout.setContentsMargins(0, 0, 0, 0);
         self.content_layout.setSpacing(0)
-        self.ref_view = AspectLabel();
-        self.canvas_view = ProCanvas()
+
+        self.ref_view = AspectLabel(self)
+        self.canvas_view = ProCanvas(self)
         self.content_layout.addWidget(self.ref_view, 1);
         self.content_layout.addWidget(self.canvas_view, 1)
         self.main_layout.addWidget(self.content_area)
 
-        # 快捷键注册
+        # 快捷键
         QShortcut(QKeySequence("Q"), self).activated.connect(
             lambda: self.toolbar.setVisible(not self.toolbar.isVisible()))
         QShortcut(QKeySequence("W"), self).activated.connect(self.toggle_reference)
         QShortcut(QKeySequence("C"), self).activated.connect(self.clear_action)
         QShortcut(QKeySequence("Ctrl+Z"), self).activated.connect(self.undo_action)
-        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self.redo_action)  # 新增重做
+        QShortcut(QKeySequence("Ctrl+Y"), self).activated.connect(self.redo_action)
         QShortcut(QKeySequence("Ctrl+S"), self).activated.connect(self.save_file)
         self.update_brush()
 
+    # --- 取色核心逻辑 ---
+    def pick_color_at_screen(self, global_pos):
+        """获取屏幕指定坐标的颜色并应用"""
+        screen = QApplication.primaryScreen()
+        if screen:
+            # 抓取坐标下的 1x1 像素
+            pixmap = screen.grabWindow(0, global_pos.x(), global_pos.y(), 1, 1)
+            if not pixmap.isNull():
+                img = pixmap.toImage()
+                color = QColor(img.pixel(0, 0))
+                self.base_color_val = color
+                # 同步更新笔刷和UI反馈（可选：改变按钮颜色）
+                self.update_brush()
+                self.color_btn.setStyleSheet(f"background-color: {color.name()};")
+
     def load_brushes(self):
-        if getattr(sys, 'frozen', False):
-            base_dir = os.path.dirname(sys.executable)
-        else:
-            base_dir = os.path.dirname(os.path.abspath(__file__))
+        base_dir = os.path.dirname(sys.executable) if getattr(sys, 'frozen', False) else os.path.dirname(
+            os.path.abspath(__file__))
         path = os.path.join(base_dir, "brushes")
         if not os.path.exists(path): os.makedirs(path); return
         for f in os.listdir(path):
             if f.lower().endswith(".abr"):
-                base_name = os.path.splitext(f)[0]
                 tips = IntegratedAbrParser.load_abr(os.path.join(path, f))
                 for i, tip in enumerate(tips):
-                    name = base_name if len(tips) == 1 else f"{base_name}_{i + 1}"
+                    name = f"{os.path.splitext(f)[0]}_{i + 1}"
                     self.canvas_view.custom_tips[name] = tip;
                     self.shape_box.addItem(name)
 
     def undo_action(self):
         if len(self.canvas_view.undo_stack) > 1:
-            # 将当前状态移入重做栈
-            last_state = self.canvas_view.undo_stack.pop()
-            self.canvas_view.redo_stack.append(last_state)
-
-            # 恢复上一状态
+            self.canvas_view.redo_stack.append(self.canvas_view.undo_stack.pop())
             self.canvas_view.full_image = self.canvas_view.undo_stack[-1].copy()
             self.canvas_view.update()
 
     def redo_action(self):
-        # 【核心逻辑】：如果重做栈不为空，则取回最新状态
         if self.canvas_view.redo_stack:
             next_state = self.canvas_view.redo_stack.pop()
             self.canvas_view.undo_stack.append(next_state)
@@ -374,7 +398,7 @@ class DrawingApp(QMainWindow):
     def clear_action(self):
         self.canvas_view.full_image.fill(Qt.white)
         self.canvas_view.undo_stack.append(self.canvas_view.full_image.copy())
-        self.canvas_view.redo_stack.clear()  # 清空重做栈
+        self.canvas_view.redo_stack.clear()
         self.canvas_view.update()
 
     def update_brush(self):
@@ -382,12 +406,15 @@ class DrawingApp(QMainWindow):
         self.canvas_view.brush_shape = self.shape_box.currentText()
         self.canvas_view.stroke_opacity = self.alpha_slider.value() / 255.0
         c = QColor(self.base_color_val);
-        c.setAlpha(255);
+        c.setAlpha(255)
         self.canvas_view.brush_color_opaque = c
 
-    def pick_color(self):
+    def pick_color_dialog(self):
         color = QColorDialog.getColor(self.base_color_val)
-        if color.isValid(): self.base_color_val = color; self.update_brush()
+        if color.isValid():
+            self.base_color_val = color
+            self.update_brush()
+            self.color_btn.setStyleSheet(f"background-color: {color.name()};")
 
     def import_ref(self):
         p, _ = QFileDialog.getOpenFileName(self, "导入参考", "", "Images (*.png *.jpg *.bmp)")
@@ -400,7 +427,6 @@ class DrawingApp(QMainWindow):
     def toggle_reference(self):
         vis = self.ref_view.isVisible()
         self.ref_view.setVisible(not vis)
-        self.resize(int(self.width() / 2 if vis else self.width() * 2), self.height())
 
 
 if __name__ == "__main__":

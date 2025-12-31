@@ -36,6 +36,7 @@ python Nopressure.py
 
 | 快捷键 | 功能描述 |
 | --- | --- |
+| **鼠标右键** | 取色工具（点击或按住拖拽可从参考图/画布取色） |
 | **Q** | 开关顶部工具栏 |
 | **W** | 开关参考图（自动缩放窗口宽度） |
 | **C** | 清空当前画布 |
@@ -89,8 +90,10 @@ python Nopressure.py
 
 
 ## ⌨️ Shortcut Key Instructions
+
 | Shortcut Key | Function Description |
 | --- | --- |
+| **Right Click** | Color Picker (Click or drag to pick color from reference/canvas) |
 | **Q** | Toggle the top toolbar |
 | **W** | Toggle reference images (automatically scales window width) |
 | **C** | Clear the current canvas |
